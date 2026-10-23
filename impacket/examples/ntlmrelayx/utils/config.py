@@ -46,6 +46,8 @@ class NTLMRelayxConfig:
         self.ipv6 = False
         self.remove_mic = False
         self.remove_sign_seal = False
+        self.reauth_bypass = False
+        self.reauth_creds = None
         self.disableMulti = False
         self.keepRelaying = False
         self.https = False
